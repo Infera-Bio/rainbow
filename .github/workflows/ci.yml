@@ -15,12 +15,20 @@ permissions:
 
 jobs:
   test:
-    name: Tests (Python ${{ matrix.python-version }})
+    name: Tests (Python ${{ matrix.python-version }}${{ matrix.max-array-bytes && ', 1 GiB array cap' || '' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.8', '3.13']
+        max-array-bytes: ['']
+        # Once more with the allocation cap set, so no real fixture needs an
+        # array the cap would refuse.
+        include:
+          - python-version: '3.13'
+            max-array-bytes: '1073741824'
+    env:
+      RAINBOW_MAX_ARRAY_BYTES: ${{ matrix.max-array-bytes }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
