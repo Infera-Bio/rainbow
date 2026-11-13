@@ -15,6 +15,7 @@ except ImportError:
     import xml.etree.ElementTree as etree
 from rainbow import DataFile
 from rainbow._binning import HRMS_MZ_FLOOR, label_precision
+from rainbow._limits import check_arange, check_array, fits
 from rainbow.agilent.chemstation import parse_optics
 
 # NOTE: `lzf` (python-lzf) is imported lazily inside parse_msdata, and only
@@ -754,6 +755,10 @@ def parse_dadspectra(path, desc_path):
         axes = block[:, :prefix_size]
         data = block[:, prefix_size:]
     else:
+        # Each descriptor record may point at the same spectrum, so this grid
+        # is not bounded by the size of the .sp it is read from.
+        check_array((num_times, count), np.float64,
+                    f"the spectra of {path}")
         axes = np.empty((num_times, prefix_size), dtype=np.float64)
         data = np.empty((num_times, count), dtype=np.float64)
         for i, start in enumerate(spectrum_offsets):
@@ -1076,6 +1081,10 @@ def parse_msdata(path, display_precision='auto', bin_width=None,
         # Read and decompress the segment for the current retention time.
         f.seek(offset)
         comp_bytes = f.read(comp_len)
+        # num_mz is MSScan.bin's word for the scan, and both decoders build
+        # an array that long before reading the segment.
+        check_array(num_mz, np.uint32,
+                    f"the intensities of scan {i} in {profile_path}")
         if segment_is_rle(comp_bytes, num_mz):
             start_mz, delta_mz = twodoubles_unpack(comp_bytes[:16])
             body = memoryview(comp_bytes)[16:]
@@ -1093,6 +1102,9 @@ def parse_msdata(path, display_precision='auto', bin_width=None,
                 raise ModuleNotFoundError(
                     "Reading LZF-compressed MSProfile.bin (HRMS) data needs "
                     "python-lzf: pip install rainbow-api[hrms]")
+            # python-lzf allocates the stated output length up front.
+            check_array(decomp_len, np.uint8,
+                        f"decompressing scan {i} of {profile_path}")
             decomp_view = memoryview(lzf.decompress(comp_bytes, decomp_len))
             start_mz, delta_mz = twodoubles_unpack(decomp_view[:16])
             inten = np.ndarray(num_mz, '<I', bytes(decomp_view[16:]))
@@ -1104,6 +1116,9 @@ def parse_msdata(path, display_precision='auto', bin_width=None,
             scan_calib_ids.append(calib_id)
         else:
             # Calculate the calibrated mz values from the raw flight-time axis.
+            check_arange(start_mz, start_mz + delta_mz * (num_mz - 1) + 1e-3,
+                         delta_mz, np.float64,
+                         f"the flight-time axis of scan {i} in {profile_path}")
             flight_times = np.arange(
                 start_mz, start_mz + delta_mz * (num_mz - 1) + 1e-3, delta_mz)
             flight_times = flight_times[:num_mz]
@@ -1132,6 +1147,8 @@ def parse_msdata(path, display_precision='auto', bin_width=None,
     # Concatenating the per-scan arrays avoids materializing a ~100M-element
     # Python list (and the numpy round-trip through it), which otherwise
     # dominates parsing of large profile files.
+    check_array(sum(arr.size for arr in inten_arrs), np.uint64,
+                f"the points of {profile_path}")
     mz_arr = np.concatenate(mz_arrs)
     intensities = np.concatenate(inten_arrs).astype(np.uint64)
     rows = np.repeat(np.arange(num_times), num_mz_per_time.astype(np.int64))
@@ -1178,9 +1195,13 @@ def _build_per_scan_profiles(times, inten_arrs, grid_keys, calib_vals,
     for seg, (key, idxs) in enumerate(
             sorted(groups.items(), key=lambda kv: -len(kv[1]))):
         num_mz, start_mz, delta_mz = key
+        check_arange(start_mz, start_mz + delta_mz * (num_mz - 1) + 1e-3,
+                     delta_mz, np.float64, "a MSProfile.bin flight-time axis")
         flight_times = np.arange(
             start_mz, start_mz + delta_mz * (num_mz - 1) + 1e-3, delta_mz)
         flight_times = flight_times[:num_mz]
+        check_array((len(idxs), num_mz), np.uint32,
+                    "a MSProfile.bin intensity grid")
         data = np.stack([inten_arrs[i] for i in idxs]).astype(np.uint32)
         xlabels = times[idxs]
         calib = calib_vals[idxs]
@@ -1261,6 +1282,8 @@ def parse_icpmsdata(path, display_precision='auto'):
     #   - analog value   : num_mz * 8 bytes (float64, unused here)
     # Only the reported values are kept; the pulse and analog blocks are used
     # for detector cross-calibration but are not part of the DataFile.
+    check_array((num_times, num_masses), np.float64,
+                f"the ICP-MS intensities in {path}")
     f = open(os.path.join(path, "MSProfile.bin"), 'rb')
     times = np.empty(num_times)
     data = np.empty((num_times, num_masses), dtype=np.float64)
@@ -1458,7 +1481,11 @@ def bin_to_grid(mz_arr, intensities, rows, num_times, display_precision,
     low = int(keys.min())
     span = int(keys.max()) - low + 1
 
-    if span * num_times <= _MAX_DENSE_BINS:
+    # bincount builds the grid in float64 and then casts it to uint64, so it
+    # holds two arrays this size. The dense grid also covers empty bins, so
+    # past the cap it gives way to the sparse path, which may still fit.
+    if (span * num_times <= _MAX_DENSE_BINS
+            and fits((num_times, span), np.uint64)):
         # Dense path: integer bin keys index straight into the grid.
         idx = rows * span + (keys - low)
         grid = _scatter_sum(idx, intensities, num_times * span)
@@ -1475,6 +1502,8 @@ def bin_to_grid(mz_arr, intensities, rows, num_times, display_precision,
     uniq = np.unique(keys)
     cols = np.searchsorted(uniq, keys)
     idx = rows * uniq.size + cols
+    check_array((num_times, uniq.size), np.uint64,
+                "the (retention time x m/z) grid")
     grid = _scatter_sum(idx, intensities, num_times * uniq.size)
     grid = grid.reshape(num_times, uniq.size)
     present = np.nonzero(grid.any(axis=0))[0]
@@ -1614,6 +1643,10 @@ def parse_mspeakdata(path, display_precision='auto', bin_width=None,
     # which is the same reason no floor is recorded here.
     floor = None
 
+    # Scans may share one peak block, so the total is not bounded by
+    # MSPeak.bin's size.
+    check_array(sum(m.size for m in mz_per_scan), np.float64,
+                f"the peaks of {peak_path}")
     mz_arr = np.concatenate(mz_per_scan)
     if mz_arr.size == 0:
         return _with_mz_floor(DataFile(
@@ -1818,7 +1851,11 @@ def calibrate_mz(tof, calib_row, use_flags):
 
     # Map the six coefficients onto the polynomial orders flagged for use.
     coefficients = calib_row[4:10]
-    orders = [k for k in range(use_flags.bit_length()) if use_flags >> k & 1]
+    # use_flags is an integer read from DefaultMassCal.xml; its highest set
+    # bit sizes the polynomial.
+    check_array(use_flags.bit_length(), np.float64,
+                "the mass calibration polynomial")
+    orders =[k for k in range(use_flags.bit_length()) if use_flags >> k & 1]
     poly = np.zeros(max(orders) + 1) if orders else np.zeros(1)
     for order, coefficient in zip(orders, coefficients):
         poly[order] = coefficient
