@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from rainbow._limits import check_array
 from rainbow.agilent import chemstation
 from rainbow.datafile import DataFile
 from rainbow.datadirectory import DataDirectory
@@ -87,7 +88,7 @@ def read(path, display_precision='auto', requested_files=None, telemetry=False,
 
                 tmppath = os.path.join(tmp, base)
                 with open(tmppath, 'wb') as out:
-                    out.write(archive.read(member))
+                    out.write(_read_member(archive, member))
 
                 datafile = _parse_member(tmppath, name, ext, signal)
                 if datafile is not None:
@@ -151,6 +152,14 @@ def _parse_member(tmppath, name, ext, signal):
         _file_metadata(signal))
 
 
+def _read_member(archive, name):
+    """Reads one archive member whole, after checking the uncompressed size
+    its zip header states, since a small archive can inflate to gigabytes."""
+    check_array(archive.getinfo(name).file_size, np.uint8,
+                f"{name} in {archive.filename}")
+    return archive.read(name)
+
+
 def _parse_manifest(archive):
     """
     Parses the injection.acmd manifest of a .dx archive.
@@ -164,7 +173,7 @@ def _parse_manifest(archive):
     signals = {}
 
     try:
-        root = ET.fromstring(archive.read('injection.acmd'))
+        root = ET.fromstring(_read_member(archive, 'injection.acmd'))
     except (KeyError, ET.ParseError):
         return dir_metadata, signals
 

@@ -29,6 +29,7 @@ import zipfile
 
 __all__ = ["inspect", "fields"]
 
+from rainbow.agilent.openlab import _read_member
 from rainbow.debug import ini
 from rainbow.debug import xml
 from rainbow.debug import chemstation_text
@@ -135,7 +136,7 @@ def _iter_archive(archive_path, relbase):
             dest = os.path.join(tmp, base)
             try:
                 with open(dest, "wb") as out:
-                    out.write(archive.read(member))
+                    out.write(_read_member(archive, member))
             except Exception:
                 # One member is skipped, never the archive and never the walk.
                 # zipfile.read raises more than a bad-zip error: an unsupported
