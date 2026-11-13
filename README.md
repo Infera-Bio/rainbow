@@ -1,4 +1,10 @@
 # rainbow
+
+> **This is Infera's patched build of [rainbow-api](https://github.com/evanyeyeye/rainbow) 1.5.5**, versioned `1.5.5+infera.1` and licensed, like upstream, under LGPL-3.0-or-later.
+> It adds one thing: an optional cap on the size of any array rainbow allocates from sizes a file states, so a crafted file raises `rainbow.AllocationLimitError` instead of exhausting memory.
+> Set it with `rainbow.set_max_array_bytes(n)` or the `RAINBOW_MAX_ARRAY_BYTES` environment variable; it is off by default. See the [changelog](CHANGELOG.md).
+> Builds are attached to this repository's GitHub releases, not published to PyPI.
+
 [![PyPI](https://img.shields.io/pypi/v/rainbow-api)](https://pypi.org/project/rainbow-api)
 [![Documentation Status](https://readthedocs.org/projects/rainbow-api/badge/?version=latest)](https://rainbow-api.readthedocs.io/en/latest/?badge=latest)
 [![PyPI - Downloads](https://static.pepy.tech/badge/rainbow-api)](https://pypi.org/project/rainbow-api)

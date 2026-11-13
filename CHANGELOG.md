@@ -3,6 +3,23 @@
 All notable changes to `rainbow-api` are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.5.5+infera.1] - 2026-11-13
+
+Infera's patched build of 1.5.5. It is not published to PyPI.
+
+### Added
+- **An optional cap on arrays sized from file contents.** The readers size
+  arrays from values the file states (scan and point counts, start/end/step
+  axes, the number of distinct m/z bins), so a small crafted file could ask for
+  gigabytes: a 6 KB `.ch` whose time step is 1e-12 asked `np.arange` for 8 GB,
+  and a Waters function of one-pair scans over 3,277 labels asked for a 13 GB
+  grid. `rb.set_max_array_bytes(n)` or `RAINBOW_MAX_ARRAY_BYTES=n` (read at
+  import) sets the largest single such array in bytes. A read that would
+  exceed it raises `rb.AllocationLimitError` (a `ValueError`) before
+  allocating. With no cap, the default, behaviour is unchanged, except that the
+  m/z binning takes its sort path instead of the dense histogram when the
+  histogram alone would exceed a cap that is set.
+
 ## [1.5.5] - 2026-10-17
 
 ### Added
