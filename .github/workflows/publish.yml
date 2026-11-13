@@ -13,6 +13,12 @@ name: Publish to PyPI
 #   Repository name:  rainbow
 #   Workflow name:    publish.yml
 #   Environment name: pypi
+#
+# Infera's patched builds (package version e.g. 1.5.5+infera.1) are tagged
+# v1.5.5-infera.1, without the "+", which tag filters and release URLs would
+# otherwise have to escape. They build the same wheels and sdist, attach them to
+# a GitHub release, and never reach PyPI: a local version label cannot be
+# uploaded there, and the trusted publisher belongs to upstream.
 
 on:
   push:
@@ -71,6 +77,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
+    if: ${{ !contains(github.ref_name, '-infera') }}
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
     environment: pypi
@@ -86,3 +93,40 @@ jobs:
 
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Attach to a GitHub release
+    if: ${{ contains(github.ref_name, '-infera') }}
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Check the builds carry the tagged version
+        # v1.5.5-infera.1 must have built 1.5.5+infera.1, or the tag was
+        # pushed without the version bump.
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          expected="${expected/-infera/+infera}"
+          for f in dist/*; do
+            case "$f" in
+              *"-${expected}-"*.whl|*"-${expected}.tar.gz") ;;
+              *) echo "::error::$f is not version $expected"; exit 1 ;;
+            esac
+          done
+          ls dist
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Infera's patched build of rainbow-api. See CHANGELOG.md."
