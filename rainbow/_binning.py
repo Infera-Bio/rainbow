@@ -14,6 +14,8 @@ precision for presentation, which is purely cosmetic and never merges data.
 
 import numpy as np
 
+from rainbow._limits import check_array, fits
+
 
 # Finest meaningful m/z bin width per vendor (the m/z grid the binary records;
 # see the per-vendor MS docs). A bin_width below this only inserts empty bins.
@@ -151,7 +153,9 @@ def bin_datapairs(keys, values, pair_counts, bin_width,
     # empty), so past a cap it sorts instead. Without the cap the allocation
     # reaches gigabytes and the process is killed before the too-fine-bin_width
     # warning, which runs after the parse, can be printed.
-    if span <= _MAX_DENSE_BINS:
+    # The dense path's largest array is the int64 cumsum over the span, so it
+    # is also skipped when that would exceed the allocation cap.
+    if span <= _MAX_DENSE_BINS and fits(span, np.int64):
         dense = bins - base
         present = np.zeros(span, dtype=bool)
         present[dense] = True
@@ -177,9 +181,15 @@ def bin_datapairs(keys, values, pair_counts, bin_width,
     if labels_only:
         return ylabels, np.zeros((num_times, 0), dtype=data_dtype)
 
+    # pair_counts is the index file's word and need not match the pairs the
+    # data file held, so its total is checked rather than trusted.
+    check_array(int(np.sum(pair_counts, dtype=np.uint64)), np.int64,
+                "the row index of each data pair")
     rows = np.repeat(np.arange(num_times), pair_counts)
     flat_indices = rows * num_ylabels + columns
 
+    check_array((num_times, num_ylabels), data_dtype,
+                "the (retention time x ylabel) grid")
     data = np.zeros(num_times * num_ylabels, dtype=data_dtype)
     np.add.at(data, flat_indices, values)
 

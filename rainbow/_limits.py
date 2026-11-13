@@ -97,14 +97,25 @@ def check_array(shape, dtype, what):
     limit = _max_array_bytes
     if limit is None:
         return
+    nbytes = _nbytes(shape, dtype)
+    if nbytes > limit:
+        _refuse(what, f"{nbytes:,} bytes", limit)
+
+
+def fits(shape, dtype):
+    """Whether an array of ``shape`` and ``dtype`` is within the cap, for a
+    caller that has a cheaper way to proceed when it is not."""
+    limit = _max_array_bytes
+    return limit is None or _nbytes(shape, dtype) <= limit
+
+
+def _nbytes(shape, dtype):
     dims = shape if isinstance(shape, (tuple, list)) else (shape,)
     count = 1
     for dim in dims:
         # Python ints, so a product of file-stated sizes cannot wrap.
         count *= max(int(dim), 0)
-    nbytes = count * np.dtype(dtype).itemsize
-    if nbytes > limit:
-        _refuse(what, f"{nbytes:,} bytes", limit)
+    return count * np.dtype(dtype).itemsize
 
 
 def check_arange(start, stop, step, dtype, what):
