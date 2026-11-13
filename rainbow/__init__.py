@@ -1,6 +1,8 @@
 import os
 import re
 from rainbow._version import __version__
+from rainbow._limits import (AllocationLimitError, get_max_array_bytes,
+                             set_max_array_bytes)
 from rainbow.datafile import DataFile
 from rainbow.datadirectory import DataDirectory
 from rainbow.datasequence import DataSequence
@@ -20,6 +22,7 @@ __all__ = [
     'from_asm', 'sequence_from_asm', 'peaks_from_asm', 'iso_timestamp',
     'asm_technique', 'sniff_vendor',
     'VENDORS', 'MZ_FLOORS',
+    'AllocationLimitError', 'set_max_array_bytes', 'get_max_array_bytes',
 ]
 
 
