@@ -18,6 +18,7 @@ except ImportError:
     import xml.etree.ElementTree as etree
 from rainbow.datafile import DataFile
 from rainbow._binning import bin_datapairs
+from rainbow._limits import check_arange, check_array
 from rainbow._optics import excitation_emission
 
 # Optional compiled accelerators for the delta decode loops.
@@ -333,6 +334,8 @@ def parse_ch_fid(path, head):
     start_time = struct.unpack(">f", f.read(4))[0]
     end_time = struct.unpack(">f", f.read(4))[0]
     delta_time = (end_time - start_time) / (num_times - 1)
+    check_arange(start_time, end_time + 1e-3, delta_time, np.float64,
+                 f"the retention time axis of {path}")
     times = np.arange(start_time, end_time + 1e-3, delta_time)
 
     # Extract the raw data values.
@@ -436,6 +439,8 @@ def parse_ch_other(path, head):
     f.seek(data_offsets['time_range'])
     start_time, end_time = struct.unpack('>ii', f.read(8))
     delta_time = (end_time - start_time) / (num_times - 1)
+    check_arange(start_time, end_time + 1e-3, delta_time, np.float64,
+                 f"the retention time axis of {path}")
     times = np.arange(start_time, end_time + 1e-3, delta_time)
 
     # Convert time to minutes
@@ -688,10 +693,16 @@ def parse_uv(path):
     f.seek(data_offsets["data_start"] + 0x8)
     start_wlen, end_wlen, delta_wlen = \
         tuple(num // 20 for num in struct.unpack("<HHH", f.read(6)))
+    check_arange(start_wlen, end_wlen + 1, delta_wlen, np.int64,
+                 f"the wavelength axis of {path}")
     wavelengths = np.arange(start_wlen, end_wlen + 1, delta_wlen)
     num_wavelengths = wavelengths.size
 
     # Extract the retention times and absorbances from each data segment.
+    # num_times comes straight from the header, and every decoder (the
+    # compiled one included) allocates the full grid before reading a byte.
+    check_array((num_times, num_wavelengths), np.int64,
+                f"the absorbances of {path}")
     times, data = decode(f, data_offsets, num_times, num_wavelengths)
 
     # Covert times to minutes. 
@@ -864,6 +875,7 @@ def parse_ms(path, display_precision=0, bin_width=1.0, labels_only=False):
 
     # Extract retention times and data pair counts for each time. 
     # Store the bytes holding mz-intensity pairs.
+    check_array(num_times, np.uint32, f"the retention times of {path}")
     times = np.empty(num_times, dtype=np.uint32)
     pair_counts = np.zeros(num_times, dtype=np.uint16)
     pair_bytearr = bytearray()
